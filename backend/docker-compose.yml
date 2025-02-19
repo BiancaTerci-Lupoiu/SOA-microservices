@@ -1,0 +1,134 @@
+services:
+  auth-api: #authentication service
+    container_name: auth-api
+    build:
+      dockerfile: auth-service/Dockerfile
+      context: .
+    restart: always
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - database
+
+  nginx: #load balancer using nginx
+    container_name: nginx
+    build:
+      dockerfile: Dockerfile
+      context: nginx
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - auth-api
+      - movies-api
+      - tickets-api
+
+  database: #database for everything
+    container_name: database
+    image: mongo:7.0
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=admin
+      - MONGO_INITDB_DATABASE=database
+
+  movies-api: #movies service
+    container_name: movies-api
+    build:
+      dockerfile: movies-service/Dockerfile
+      context: .
+    restart: always
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - database
+
+  tickets-api: #ticket service
+    container_name: tickets-api
+    build:
+      dockerfile: tickets-service/Dockerfile
+      context: .
+    restart: always
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - kafka
+      - database
+
+  zookeeper:
+    container_name: zookeeper
+    image: confluentinc/cp-zookeeper
+    restart: always
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+
+  kafka:
+    container_name: kafka
+    image: confluentinc/cp-kafka
+    restart: always
+    depends_on:
+      - zookeeper
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  booking-confirmation-api: #booking confirmation service
+    container_name: booking-confirmation-api
+    build:
+      dockerfile: booking-confirmation-service/Dockerfile
+      context: .
+    restart: always
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - RABBITMQ_URL=${RABBITMQ_URL}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    depends_on:
+      - kafka
+      - rabbitmq
+      - tickets-api
+
+  notification-api:
+    container_name: notification-api
+    build:
+      dockerfile: server-notification-service/Dockerfile
+      context: .
+    restart: always
+    environment:
+      - RABBITMQ_URL=${RABBITMQ_URL}
+    depends_on:
+      - rabbitmq
+
+  rabbitmq:
+    image: rabbitmq:management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"    # RabbitMQ messaging port
+      - "15672:15672"  # RabbitMQ management UI port
+    environment:
+      RABBITMQ_DEFAULT_USER: admin  # Set a custom username
+      RABBITMQ_DEFAULT_PASS: admin  # Set a custom password
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq  # Persistent storage for RabbitMQ data
+
+  frontend:
+    container_name: frontend-service
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+
+volumes:
+  rabbitmq_data:
+
